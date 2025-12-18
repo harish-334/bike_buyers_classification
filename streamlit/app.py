@@ -1,10 +1,8 @@
 import streamlit as st
-st.write("🚀 Streamlit app started")
-import pandas as pd
-import joblib
 import json
-from pathlib import Path
+import requests
 import base64
+from pathlib import Path
 
 # -----------------------------
 # Page config (MUST be first)
@@ -15,13 +13,14 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+st.write("🚀 Streamlit app started")
+
 # -----------------------------
-# Paths
+# Paths (Streamlit-only)
 # -----------------------------
-BASE_DIR = Path(__file__).resolve().parent.parent
-MODEL_PATH = BASE_DIR / "models" / "global_best_model.pkl"
-UI_CONFIG_PATH = BASE_DIR / "streamlit" / "ui_config.json"
-BG_IMAGE_PATH = Path(__file__).parent / "assets" / "bike_bg.jpg"
+BASE_DIR = Path(__file__).resolve().parent
+UI_CONFIG_PATH = BASE_DIR / "ui_config.json"
+BG_IMAGE_PATH = BASE_DIR / "assets" / "bike_bg.jpg"
 
 # -----------------------------
 # Background + Global CSS
@@ -33,12 +32,10 @@ def add_bg_from_local(image_path: Path):
     st.markdown(
         f"""
         <style>
-        /* Remove Streamlit default UI */
         header {{visibility: hidden;}}
         footer {{visibility: hidden;}}
         .stApp > header {{display: none;}}
 
-        /* Background */
         .stApp {{
             background:
                 linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.55)),
@@ -48,22 +45,10 @@ def add_bg_from_local(image_path: Path):
             background-attachment: fixed;
         }}
 
-        /* Main container spacing */
         .block-container {{
             padding-top: 2rem;
         }}
 
-        /* Glass card */
-        .glass {{
-            background: rgba(255, 255, 255, 0.15);
-            backdrop-filter: blur(12px);
-            border-radius: 20px;
-            padding: 32px;
-            border: 1px solid rgba(255,255,255,0.25);
-            margin-top: 24px;
-        }}
-
-        /* Text color */
         h1, h2, h3, label, p {{
             color: white !important;
         }}
@@ -75,22 +60,17 @@ def add_bg_from_local(image_path: Path):
 add_bg_from_local(BG_IMAGE_PATH)
 
 # -----------------------------
-# Load model & UI config
+# Load UI config
 # -----------------------------
-@st.cache_resource
-def load_model():
-    return joblib.load(MODEL_PATH)
-
 @st.cache_data
 def load_ui_config():
     with open(UI_CONFIG_PATH) as f:
         return json.load(f)
 
-model = load_model()
 ui_config = load_ui_config()
 
 # -----------------------------
-# Header / Hero section
+# Header
 # -----------------------------
 st.title("🚲 Bike Purchase Intelligence")
 st.markdown(
@@ -99,22 +79,18 @@ st.markdown(
 )
 
 # -----------------------------
-# Glass Card (ONLY ONE)
+# Input Form
 # -----------------------------
-
 with st.form("prediction_form"):
     st.subheader("Customer Details")
-
     input_data = {}
 
-    # Categorical inputs
     for col, options in ui_config["categorical_features"].items():
         input_data[col] = st.selectbox(
             col.replace("_", " ").title(),
             options
         )
 
-    # Numeric inputs
     for col, bounds in ui_config["numeric_features"].items():
         input_data[col] = st.slider(
             col.replace("_", " ").title(),
@@ -124,46 +100,35 @@ with st.form("prediction_form"):
 
     submitted = st.form_submit_button("🔍 Predict")
 
-st.markdown("</div>", unsafe_allow_html=True)
-
 # -----------------------------
-# Prediction Output
+# API Call
 # -----------------------------
-import requests
-
 API_URL = "https://bike-buyers-api.onrender.com/predict"
 
 if submitted:
-    response = requests.post(API_URL, json=input_data, timeout=10)
+    response = requests.post(API_URL, json=input_data)
 
-    if response.status_code == 200:
-        result = response.json()
-        prediction = result["prediction"]
-        probability = result["probability"]
+            if response.status_code == 200:
+                result = response.json()
+                prediction = result["prediction"]
+                probability = result["probability"]
 
-        st.subheader("Prediction Result")
+                st.subheader("Prediction Result")
+                st.progress(int(probability * 100))
 
-        # Confidence bar
-        st.progress(int(probability * 100))
+                if prediction == 1:
+                    st.success(
+                        f"✅ Likely to buy a bike\n\n"
+                        f"**Confidence:** {probability*100:.1f}%"
+                    )
+                else:
+                    st.warning(
+                        f"❌ Unlikely to buy a bike\n\n"
+                        f"**Confidence:** {(1-probability)*100:.1f}%"
+                    )
 
-        if prediction == 1:
-            st.success(
-                f"✅ Likely to buy a bike\n\n"
-                f"**Confidence:** {probability*100:.1f}%"
-            )
-        else:
-            st.warning(
-                f"❌ Unlikely to buy a bike\n\n"
-                f"**Confidence:** {(1-probability)*100:.1f}%"
-            )
+            else:
+                st.error("❌ API error. Please try again.")
 
-        # Explanation text
-        if probability > 0.75:
-            st.info("🔍 Strong confidence prediction")
-        elif probability > 0.55:
-            st.info("🔍 Moderate confidence prediction")
-        else:
-            st.info("🔍 Low confidence - borderline case")
-
-    else:
-        st.error("API error. Please try again.")
+        except requests.exceptions.RequestException:
+            st.error("❌ Cannot reach prediction server.")
