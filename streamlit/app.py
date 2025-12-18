@@ -130,7 +130,7 @@ st.markdown("</div>", unsafe_allow_html=True)
 # -----------------------------
 import requests
 
-API_URL = "http://api:8000/predict"
+API_URL = "https://bike-buyers-api.onrender.com/predict"
 
 if submitted:
     response = requests.post(API_URL, json=input_data)
