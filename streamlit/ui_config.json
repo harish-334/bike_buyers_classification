@@ -1,0 +1,60 @@
+{
+    "categorical_features": {
+        "gender": [
+            "Female",
+            "Male"
+        ],
+        "marital_status": [
+            "Married",
+            "Single"
+        ],
+        "education_level": [
+            "Bachelors",
+            "Graduate Degree",
+            "High School",
+            "Partial College",
+            "Partial High School"
+        ],
+        "occupation_name": [
+            "Clerical",
+            "Management",
+            "Manual",
+            "Professional",
+            "Skilled Manual"
+        ],
+        "region_name": [
+            "Europe",
+            "North America",
+            "Pacific"
+        ],
+        "commute_distance": [
+            "0-1 Miles",
+            "1-2 Miles",
+            "10+ Miles",
+            "2-5 Miles",
+            "5-10 Miles"
+        ],
+        "home_owner": [
+            "No",
+            "Yes"
+        ]
+    },
+    "numeric_features": {
+        "age": {
+            "min": 25,
+            "max": 89
+        },
+        "children": {
+            "min": 0,
+            "max": 5
+        },
+        "income": {
+            "min": 10000,
+            "max": 170000
+        },
+        "cars": {
+            "min": 0,
+            "max": 4
+        }
+    }
+}

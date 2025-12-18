@@ -1,191 +1,168 @@
-import json
-import os
-from pathlib import Path
-from typing import Any, Dict
-
-import requests
 import streamlit as st
+import pandas as pd
+import joblib
+import json
+from pathlib import Path
+import base64
 
-# -----------------------------------------------------------------------------
-# MUST be the first Streamlit command
-# -----------------------------------------------------------------------------
-st.set_page_config(page_title="Housing Prediction", page_icon="🏠", layout="centered")
+# -----------------------------
+# Page config (MUST be first)
+# -----------------------------
+st.set_page_config(
+    page_title="Bike Buyers Prediction",
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
 
-# -----------------------------------------------------------------------------
-# Config
-# -----------------------------------------------------------------------------
-SCHEMA_PATH = Path("/app/data/data_schema.json")
+# -----------------------------
+# Paths
+# -----------------------------
+BASE_DIR = Path(__file__).resolve().parent.parent
+MODEL_PATH = BASE_DIR / "models" / "global_best_model.pkl"
+UI_CONFIG_PATH = BASE_DIR / "streamlit" / "ui_config.json"
+BG_IMAGE_PATH = Path(__file__).parent / "assets" / "bike_bg.jpg"
 
-# API_URL is set in docker-compose environment
-API_BASE_URL = os.getenv("API_URL", "http://localhost:8000")
-PREDICT_ENDPOINT = f"{API_BASE_URL}/predict"
+# -----------------------------
+# Background + Global CSS
+# -----------------------------
+def add_bg_from_local(image_path: Path):
+    with open(image_path, "rb") as image_file:
+        encoded = base64.b64encode(image_file.read()).decode()
 
-# -----------------------------------------------------------------------------
-# Load schema from JSON file
-# -----------------------------------------------------------------------------
+    st.markdown(
+        f"""
+        <style>
+        /* Remove Streamlit default UI */
+        header {{visibility: hidden;}}
+        footer {{visibility: hidden;}}
+        .stApp > header {{display: none;}}
+
+        /* Background */
+        .stApp {{
+            background:
+                linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.55)),
+                url("data:image/jpg;base64,{encoded}");
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+        }}
+
+        /* Main container spacing */
+        .block-container {{
+            padding-top: 2rem;
+        }}
+
+        /* Glass card */
+        .glass {{
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(12px);
+            border-radius: 20px;
+            padding: 32px;
+            border: 1px solid rgba(255,255,255,0.25);
+            margin-top: 24px;
+        }}
+
+        /* Text color */
+        h1, h2, h3, label, p {{
+            color: white !important;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+add_bg_from_local(BG_IMAGE_PATH)
+
+# -----------------------------
+# Load model & UI config
+# -----------------------------
 @st.cache_resource
-def load_schema(path: Path) -> Dict[str, Any]:
-    if not path.exists():
-        raise FileNotFoundError(f"Schema file not found: {path}")
-    with open(path, "r") as f:
+def load_model():
+    return joblib.load(MODEL_PATH)
+
+@st.cache_data
+def load_ui_config():
+    with open(UI_CONFIG_PATH) as f:
         return json.load(f)
 
+model = load_model()
+ui_config = load_ui_config()
 
-schema = load_schema(SCHEMA_PATH)
-
-numerical_features = schema.get("numerical", {})
-categorical_features = schema.get("categorical", {})
-
-# -----------------------------------------------------------------------------
-# Streamlit UI
-# -----------------------------------------------------------------------------
-st.title("🏠 Housing Prediction App")
-st.write(
-    f"This app sends your inputs to the FastAPI backend at **{API_BASE_URL}** for prediction."
+# -----------------------------
+# Header / Hero section
+# -----------------------------
+st.title("🚲 Bike Purchase Intelligence")
+st.markdown(
+    "AI-powered prediction system to estimate **bike buying likelihood** "
+    "based on customer lifestyle and demographics."
 )
 
-st.header("Input Features")
+# -----------------------------
+# Glass Card (ONLY ONE)
+# -----------------------------
 
-user_input: Dict[str, Any] = {}
+with st.form("prediction_form"):
+    st.subheader("Customer Details")
 
-# -----------------------------------------------------------------------------
-# Numerical Features
-# -----------------------------------------------------------------------------
-st.subheader("Numerical Features")
+    input_data = {}
 
-# Decide which features use sliders
-SLIDER_FEATURES = {"longitude", "latitude", "housing_median_age", "median_income"}
-
-for feature_name, stats in numerical_features.items():
-    min_val = float(stats.get("min", 0.0))
-    max_val = float(stats.get("max", 1000.0))
-    mean_val = float(stats.get("mean", (min_val + max_val) / 2))
-    median_val = float(stats.get("median", mean_val))
-
-    # Use median as default
-    default_val = median_val
-
-    label = feature_name.replace("_", " ").title()
-    help_text = (
-        f"Min: {min_val:.2f}, Max: {max_val:.2f}, "
-        f"Mean: {mean_val:.2f}, Median: {median_val:.2f}"
-    )
-
-    if feature_name in SLIDER_FEATURES:
-        # Determine step size based on range and semantics
-        if feature_name in {"housing_median_age"}:
-            step = 1.0  # age in years, int-like
-        elif feature_name in {"median_income"}:
-            step = 0.1  # more granular
-        else:
-            # generic heuristic for latitude/longitude
-            step = 0.01
-
-        user_input[feature_name] = st.slider(
-            label,
-            min_value=min_val,
-            max_value=max_val,
-            value=float(default_val),
-            step=step,
-            help=help_text,
-            key=feature_name,
+    # Categorical inputs
+    for col, options in ui_config["categorical_features"].items():
+        input_data[col] = st.selectbox(
+            col.replace("_", " ").title(),
+            options
         )
-    else:
-        # Fallback to number_input for wide-range features
-        range_val = max_val - min_val
-        if range_val > 10000:
-            step = 10.0
-        elif range_val > 1000:
-            step = 5.0
-        elif range_val > 100:
-            step = 1.0
-        elif range_val > 10:
-            step = 0.1
-        else:
-            step = 0.01
 
-        user_input[feature_name] = st.number_input(
-            label,
-            min_value=min_val,
-            max_value=max_val,
-            value=float(default_val),
-            step=step,
-            help=help_text,
-            key=feature_name,
+    # Numeric inputs
+    for col, bounds in ui_config["numeric_features"].items():
+        input_data[col] = st.slider(
+            col.replace("_", " ").title(),
+            int(bounds["min"]),
+            int(bounds["max"])
         )
-# -----------------------------------------------------------------------------
-# Categorical Features
-# -----------------------------------------------------------------------------
-st.subheader("Categorical Features")
 
-for feature_name, info in categorical_features.items():
-    unique_values = info.get("unique_values", [])
-    value_counts = info.get("value_counts", {})
+    submitted = st.form_submit_button("🔍 Predict")
 
-    if not unique_values:
-        continue
+st.markdown("</div>", unsafe_allow_html=True)
 
-    # Default to the most common value
-    if value_counts:
-        default_value = max(value_counts, key=value_counts.get)
-    else:
-        default_value = unique_values[0]
+# -----------------------------
+# Prediction Output
+# -----------------------------
+import requests
 
-    try:
-        default_idx = unique_values.index(default_value)
-    except ValueError:
-        default_idx = 0
+API_URL = "http://api:8000/predict"
 
-    label = feature_name.replace("_", " ").title()
+if submitted:
+    response = requests.post(API_URL, json=input_data)
 
-    user_input[feature_name] = st.selectbox(
-        label,
-        options=unique_values,
-        index=default_idx,
-        key=feature_name,
-        help=f"Distribution: {value_counts}",
-    )
+    if response.status_code == 200:
+        result = response.json()
+        prediction = result["prediction"]
+        probability = result["probability"]
 
-st.markdown("---")
+        st.subheader("Prediction Result")
 
-# -----------------------------------------------------------------------------
-# Predict Button
-# -----------------------------------------------------------------------------
-if st.button("🔮 Predict", type="primary"):
-    payload = {"instances": [user_input]}
+        # Confidence bar
+        st.progress(int(probability * 100))
 
-    with st.spinner("Calling API for prediction..."):
-        try:
-            resp = requests.post(PREDICT_ENDPOINT, json=payload, timeout=30)
-        except requests.exceptions.RequestException as e:
-            st.error(f"❌ Request to API failed: {e}")
+        if prediction == 1:
+            st.success(
+                f"✅ Likely to buy a bike\n\n"
+                f"**Confidence:** {probability*100:.1f}%"
+            )
         else:
-            if resp.status_code != 200:
-                st.error(f"❌ API error: HTTP {resp.status_code} - {resp.text}")
-            else:
-                data = resp.json()
-                preds = data.get("predictions", [])
+            st.warning(
+                f"❌ Unlikely to buy a bike\n\n"
+                f"**Confidence:** {(1-probability)*100:.1f}%"
+            )
 
-                if not preds:
-                    st.warning("⚠️ No predictions returned from API.")
-                else:
-                    pred = preds[0]
-                    st.success("✅ Prediction successful!")
+        # Explanation text
+        if probability > 0.75:
+            st.info("🔍 Strong confidence prediction")
+        elif probability > 0.55:
+            st.info("🔍 Moderate confidence prediction")
+        else:
+            st.info("🔍 Low confidence - borderline case")
 
-                    st.subheader("Prediction Result")
-
-                    # Display prediction with nice formatting
-                    if isinstance(pred, (int, float)):
-                        st.metric(label="Predicted Value", value=f"{pred:,.2f}")
-                    else:
-                        st.metric(label="Predicted Class", value=str(pred))
-
-                    # Show input summary in expander
-                    with st.expander("📋 View Input Summary"):
-                        st.json(user_input)
-
-st.markdown("---")
-st.caption(
-    f"📁 Schema: `{SCHEMA_PATH}`  \n"
-    f"🌐 API: `{API_BASE_URL}`"
-)
+    else:
+        st.error("API error. Please try again.")
