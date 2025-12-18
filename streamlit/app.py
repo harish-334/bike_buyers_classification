@@ -13,49 +13,50 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-st.write("🚀 Streamlit app started")
-
 # -----------------------------
-# Paths (Streamlit-only)
+# Paths
 # -----------------------------
 BASE_DIR = Path(__file__).resolve().parent
 UI_CONFIG_PATH = BASE_DIR / "ui_config.json"
 BG_IMAGE_PATH = BASE_DIR / "assets" / "bike_bg.jpg"
 
 # -----------------------------
-# Background + Global CSS
+# Background + CSS
 # -----------------------------
 def add_bg_from_local(image_path: Path):
-    with open(image_path, "rb") as image_file:
-        encoded = base64.b64encode(image_file.read()).decode()
+    try:
+        with open(image_path, "rb") as image_file:
+            encoded = base64.b64encode(image_file.read()).decode()
 
-    st.markdown(
-        f"""
-        <style>
-        header {{visibility: hidden;}}
-        footer {{visibility: hidden;}}
-        .stApp > header {{display: none;}}
+        st.markdown(
+            f"""
+            <style>
+            header {{visibility: hidden;}}
+            footer {{visibility: hidden;}}
+            .stApp > header {{display: none;}}
 
-        .stApp {{
-            background:
-                linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.55)),
-                url("data:image/jpg;base64,{encoded}");
-            background-size: cover;
-            background-position: center;
-            background-attachment: fixed;
-        }}
+            .stApp {{
+                background:
+                    linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.55)),
+                    url("data:image/jpg;base64,{encoded}");
+                background-size: cover;
+                background-position: center;
+                background-attachment: fixed;
+            }}
 
-        .block-container {{
-            padding-top: 2rem;
-        }}
+            .block-container {{
+                padding-top: 2rem;
+            }}
 
-        h1, h2, h3, label, p {{
-            color: white !important;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
+            h1, h2, h3, label, p {{
+                color: white !important;
+            }}
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+    except FileNotFoundError:
+        pass  # safe for cloud
 
 add_bg_from_local(BG_IMAGE_PATH)
 
@@ -86,10 +87,7 @@ with st.form("prediction_form"):
     input_data = {}
 
     for col, options in ui_config["categorical_features"].items():
-        input_data[col] = st.selectbox(
-            col.replace("_", " ").title(),
-            options
-        )
+        input_data[col] = st.selectbox(col.replace("_", " ").title(), options)
 
     for col, bounds in ui_config["numeric_features"].items():
         input_data[col] = st.slider(
@@ -106,7 +104,9 @@ with st.form("prediction_form"):
 API_URL = "https://bike-buyers-api.onrender.com/predict"
 
 if submitted:
-    response = requests.post(API_URL, json=input_data)
+    with st.spinner("🔄 Predicting..."):
+        try:
+            response = requests.post(API_URL, json=input_data, timeout=30)
 
             if response.status_code == 200:
                 result = response.json()
@@ -126,9 +126,11 @@ if submitted:
                         f"❌ Unlikely to buy a bike\n\n"
                         f"**Confidence:** {(1-probability)*100:.1f}%"
                     )
-
             else:
-                st.error("❌ API error. Please try again.")
+                st.error(f"❌ API error ({response.status_code})")
+
+        except requests.exceptions.Timeout:
+            st.error("⏳ API waking up. Try again in 10 seconds.")
 
         except requests.exceptions.RequestException:
             st.error("❌ Cannot reach prediction server.")
