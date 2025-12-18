@@ -1,4 +1,5 @@
 import streamlit as st
+st.write("🚀 Streamlit app started")
 import pandas as pd
 import joblib
 import json
